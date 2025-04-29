@@ -1,7 +1,18 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { 
+    View, 
+    Text, 
+    TextInput, 
+    TouchableOpacity, 
+    FlatList, 
+    StyleSheet, 
+    ScrollView, 
+    ActivityIndicator,
+    Alert 
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
+import { useAuth } from "../contexts/AuthContext";
 
 export const SmartRecipeScreen = () => {
     const [ingredients, setIngredients] = useState([]);
@@ -9,6 +20,8 @@ export const SmartRecipeScreen = () => {
     const [servings, setServings] = useState("1");
     const [recipe, setRecipe] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [recipeSaved, setRecipeSaved] = useState(false);
+    const { currentUser, saveRecipe } = useAuth();
 
     const addIngredient = () => {
         if (input.trim()) {
@@ -24,32 +37,83 @@ export const SmartRecipeScreen = () => {
     const fetchRecipe = async () => {
         if (ingredients.length === 0) return;
         setLoading(true);
+        setRecipeSaved(false);
         
         const prompt = `Generate a well-formatted recipe for ${servings} person(s) using the following ingredients: ${ingredients.join(", ")}. and it should be tasty as well. The recipe should include: A creative and appealing recipe name, Total cooking time, Serving size, A beautifully formatted layout with bold headlines (Ingredients, Instructions, etc.), Clear bullet points for steps and ingredients, mark bold points with different font ,do not mention anything in the starting just start with recipe name and a description of that in 1 or 2 line ,only use the ingredients provided`;
         try {
-            const apiKey = "..."; 
+            const apiKey = "AIzaSyBaz8vOQknd48Q5AnwH-sbp-GXjja1n_v0"; // Replace with your actual API key
             const response = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-                { contents: [
-                    {
-                      role: "user",
-                      parts: [{ text: prompt }]
-                    }
-                  ]
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+                { 
+                    contents: [
+                        {
+                            parts: [{ text: prompt }]
+                        }
+                    ]
                 }
             );
             
             if (response.data?.candidates?.length > 0) {
                 let cleanText = response.data.candidates[0].content.parts[0].text;
                 cleanText = cleanText.replace(/\*\*/g, "").replace(/\*/g, "");
-                cleanText = cleanText.replace(/\#\#/g, "").replace(/\*/g, "");
+                cleanText = cleanText.replace(/\#\#/g, "").replace(/\#/g, "");
     
                 setRecipe(cleanText);
             }
         } catch (error) {
             console.error("Error fetching recipe:", error);
+            if (error.response) {
+                console.error("Response data:", error.response.data);
+                console.error("Response status:", error.response.status);
+            }
+            Alert.alert(
+                "Error", 
+                "An error occurred while generating the recipe. Please try again."
+            );
         }
         setLoading(false);
+    };
+
+    // Save the generated recipe
+    const handleSaveRecipe = async () => {
+        if (!currentUser) {
+            Alert.alert(
+                "Login Required", 
+                "Please login to save recipes",
+                [{ text: "OK" }]
+            );
+            return;
+        }
+        
+        if (!recipe) {
+            return;
+        }
+        
+        try {
+            // Extract recipe name from the generated text (assuming it's the first line)
+            const recipeName = recipe.split('\n')[0].trim();
+            
+            // Create a recipe object similar to what the API would return
+            const recipeObject = {
+                idMeal: "custom_" + new Date().getTime(), // Create a unique ID
+                strMeal: recipeName || "Smart Generated Recipe",
+                strMealThumb: "https://via.placeholder.com/300/fcf1ef/333333?text=Smart+Recipe", // Placeholder image
+                strInstructions: recipe,
+                // Add ingredient fields as needed by your app
+                strIngredient1: ingredients.join(", "),
+                strCategory: "Smart Generated",
+                strArea: "Custom",
+                isCustomRecipe: true,
+                generatedFor: servings + " people"
+            };
+            
+            await saveRecipe(recipeObject);
+            setRecipeSaved(true);
+            Alert.alert("Success", "Recipe saved successfully!");
+        } catch (error) {
+            console.error("Error saving recipe:", error);
+            Alert.alert("Error", "Failed to save recipe. Please try again.");
+        }
     };
 
     return (
@@ -100,6 +164,26 @@ export const SmartRecipeScreen = () => {
                 <View style={styles.recipeContainer}>
                     <Text style={styles.recipeTitle}>📜 Generated Recipe:</Text>
                     <Text style={styles.recipeText}>{recipe}</Text>
+                    
+                    {/* Save Button */}
+                    <TouchableOpacity 
+                        style={[
+                            styles.saveButton, 
+                            recipeSaved ? styles.savedButton : {}
+                        ]} 
+                        onPress={handleSaveRecipe}
+                        disabled={recipeSaved}
+                    >
+                        <Ionicons 
+                            name={recipeSaved ? "bookmark" : "bookmark-outline"} 
+                            size={20} 
+                            color="#FFF"
+                            style={styles.saveIcon} 
+                        />
+                        <Text style={styles.saveButtonText}>
+                            {recipeSaved ? "Recipe Saved" : "Save Recipe"}
+                        </Text>
+                    </TouchableOpacity>
                 </View>
             )}
         </ScrollView>
@@ -162,7 +246,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#f2dde1", 
         padding: 15, 
         marginTop: 20, 
-        borderRadius: 10 ,
+        borderRadius: 10,
         marginBottom: 20
     },
     recipeTitle: { 
@@ -175,5 +259,27 @@ const styles = StyleSheet.create({
     },
     loader: { 
         marginTop: 20 
+    },
+    saveButton: {
+        backgroundColor: "#436e6f",
+        borderRadius: 8,
+        padding: 12,
+        alignItems: "center",
+        marginTop: 15,
+        flexDirection: "row",
+        justifyContent: "center",
+    },
+    savedButton: {
+        backgroundColor: "#6EA788",
+    },
+    saveButtonText: {
+        color: "#fff",
+        fontSize: 16,
+        fontWeight: "600",
+    },
+    saveIcon: {
+        marginRight: 8,
     }
 });
+
+export default SmartRecipeScreen;

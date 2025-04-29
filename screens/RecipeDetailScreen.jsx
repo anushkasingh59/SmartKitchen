@@ -1,6 +1,5 @@
-import React, { useState ,useEffect} from "react";
+import React, { useState, useEffect } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-
 import {
   View,
   Text,
@@ -13,21 +12,24 @@ import {
   SafeAreaView,
 } from "react-native";
 import axios from "axios";
-
-import AsyncStorage from "@react-native-async-storage/async-storage";//add
+import { useAuth } from "../contexts/AuthContext";
 
 export const RecipeDetailScreen = ({ route }) => {
   const recipe = route?.params?.recipe;
   const [healthyRecipe, setHealthyRecipe] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [isSaved, setIsSaved] = useState(false);//add
+  const [isSaved, setIsSaved] = useState(false);
+  const { currentUser, saveRecipe, removeRecipe, loadUserData } = useAuth();
+
   useEffect(() => {
     setHealthyRecipe(null);
   }, [recipe]);
+
+  // Check if recipe is saved when screen comes into focus
   useFocusEffect(
-    React.useCallback(() => {//add
+    React.useCallback(() => {
       checkIfSaved();
-    }, [recipe]) // Runs whenever recipe changes
+    }, [recipe])
   );
   
   if (!recipe) {
@@ -37,9 +39,13 @@ export const RecipeDetailScreen = ({ route }) => {
       </View>
     );
   }
-  const checkIfSaved = async () => {//add
+
+  // Check if the recipe is already saved
+  const checkIfSaved = async () => {
+    if (!currentUser) return;
+    
     try {
-      const savedRecipes = JSON.parse(await AsyncStorage.getItem("savedRecipes")) || [];
+      const { savedRecipes } = await loadUserData(currentUser.uid);
       const alreadySaved = savedRecipes.some((r) => r.idMeal === recipe.idMeal);
       setIsSaved(alreadySaved);
     } catch (error) {
@@ -47,29 +53,34 @@ export const RecipeDetailScreen = ({ route }) => {
     }
   };
 
+  // Handle saving/removing a recipe
   const handleSaveRecipe = async () => {
+    if (!currentUser) {
+      Alert.alert(
+        "Login Required", 
+        "Please login to save recipes",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    
     try {
-      const savedRecipes = JSON.parse(await AsyncStorage.getItem("savedRecipes")) || [];
       if (isSaved) {
-        // Remove from saved list
-        const newRecipes = savedRecipes.filter((r) => r.idMeal !== recipe.idMeal);
-        await AsyncStorage.setItem("savedRecipes", JSON.stringify(newRecipes));
+        await removeRecipe(recipe.idMeal);
         setIsSaved(false);
       } else {
-        // Add to saved list
-        savedRecipes.push(recipe);
-        await AsyncStorage.setItem("savedRecipes", JSON.stringify(savedRecipes));
+        await saveRecipe(recipe);
         setIsSaved(true);
       }
     } catch (error) {
-      console.error("Error saving recipe:", error);
+      console.error("Error saving/removing recipe:", error);
     }
-  };//add
+  };
 
   const fetchHealthyRecipe = async () => {
     setLoading(true);
     try {
-      const apiKey = ".."; // Replace with a valid key
+      const apiKey = "AIzaSyBaz8vOQknd48Q5AnwH-sbp-GXjja1n_v0"; // Replace with a valid key
       const response = await axios.post(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
@@ -78,7 +89,7 @@ export const RecipeDetailScreen = ({ route }) => {
               role: "user",
               parts: [
                 {
-                  text: `Convert this recipe into a healthy version  and it should be tasty as well. The recipe should include: A creative and appealing recipe name, Total cooking time, Serving size, A beautifully formatted layout with bold headlines (Ingredients, Instructions, etc.), Clear bullet points for steps and ingredients, mark bold points with different font:\n\nName: ${recipe.strMeal}\nIngredients: ${Object.keys(recipe)
+                  text: `Convert this recipe into a healthy version and it should be tasty as well. The recipe should include: A creative and appealing recipe name, Total cooking time, Serving size, A beautifully formatted layout with bold headlines (Ingredients, Instructions, etc.), Clear bullet points for steps and ingredients, mark bold points with different font:\n\nName: ${recipe.strMeal}\nIngredients: ${Object.keys(recipe)
                     .filter((key) => key.startsWith("strIngredient") && recipe[key])
                     .map((key) => recipe[key])
                     .join(", ")}\nInstructions: ${recipe.strInstructions}`,
@@ -88,8 +99,6 @@ export const RecipeDetailScreen = ({ route }) => {
           ],
         }
       );
-
-      console.log("API Response:", response.data);
 
       if (response.data?.candidates?.length > 0) {
         let cleanText = response.data.candidates[0].content.parts[0].text;
@@ -133,10 +142,12 @@ export const RecipeDetailScreen = ({ route }) => {
           disabled={loading}
         >
           {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.buttonText}>Get Healthy Version</Text>}
-        </TouchableOpacity>{/*add*/} 
+        </TouchableOpacity>
+        
         <TouchableOpacity style={[styles.button, isSaved ? styles.savedButton : {}]} onPress={handleSaveRecipe}>
           <Text style={styles.buttonText}>{isSaved ? "Remove from Saved" : "Save Recipe"}</Text>
-        </TouchableOpacity>{/*add*/} 
+        </TouchableOpacity>
+        
         {healthyRecipe && (
           <View style={styles.healthyContainer}>
             <Text style={styles.sectionTitle}>Healthy Version:</Text>
@@ -231,9 +242,12 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 20,
   },
-  savedButton: { //add
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  savedButton: {
     backgroundColor: "#c0392b"
-   },//add
+  },
   buttonText: {
     color: "#fff",
     fontSize: 16,
@@ -252,5 +266,3 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 });
-
-export default RecipeDetailScreen;
